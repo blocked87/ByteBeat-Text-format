@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>BBT Player + Clean Real-Time Waveform</title>
+<style>
+body { background: #000; color: #0f0; font-family: monospace; padding: 10px; }
+textarea, input, button { font-family: monospace; background: #111; color: #0f0; border: 1px solid #0f0; margin: 5px; }
+canvas { display: block; background: #111; border: 1px solid #0f0; image-rendering: pixelated; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<h2>BBT Player + Waveform</h2>
+
+<textarea id="formula" rows="2" cols="80">t&t>>8</textarea><br>
+Samples: <input id="samples" type="number" value="65536">
+Hz: <input id="hz" type="number" value="8000">
+<button onclick="generate()">Generate</button>
+<button onclick="save()">Save .bbt</button>
+<input type="file" id="fileInput">
+<button onclick="load()">Load</button>
+<button onclick="play()">Play</button>
+
+<canvas id="wave" width="512" height="128"></canvas>
+
+<script>
+let bbtData = "";
+let audioContext;
+let drawInterval = null;
+let currentSource = null;
+let playbackStartTime = 0;
+let bufferStartOffset = 0;
+
+const canvas = document.getElementById("wave");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+function generate() {
+let code = document.getElementById("formula").value;
+let totalSamples = parseInt(document.getElementById("samples").value);
+let n = '\n';
+let t = 0;
+
+try {
+// Inject common Math functions into scope for formulas without 'Math.'
+const abs = Math.abs, random = Math.random, floor = Math.floor, ceil = Math.ceil, sin = Math.sin, cos = Math.cos, pow = Math.pow, sqrt = Math.sqrt, PI = Math.PI;
+
+for (let i = 0; i < totalSamples; i++) {
+let val = eval(code);
+n += String.fromCharCode(65 + (val & 255));
+if (i % 64 === 63) n += '\n';
+t++;
+}
+bbtData = n;
+} catch (err) {
+alert("Error in formula: " + err.message);
+}
+}
+
+function save() {
+if (!bbtData) return alert("Nothing to save.");
+const blob = new Blob([bbtData], { type: "text/plain" });
+const link = document.createElement("a");
+link.href = URL.createObjectURL(blob);
+link.download = "custom.bbt";
+link.click();
+}
+
+function load() {
+const file = document.getElementById("fileInput").files[0];
+if (!file) return alert("Please select a .bbt file.");
+const reader = new FileReader();
+reader.onload = function (e) {
+bbtData = e.target.result;
+};
+reader.readAsText(file);
+}
+
+function stopAudio() {
+if (currentSource) {
+currentSource.stop();
+currentSource.disconnect();
+currentSource = null;
+}
+if (drawInterval) {
+clearInterval(drawInterval);
+drawInterval = null;
+}
+}
+
+function play() {
+if (!bbtData) return alert("No .bbt data loaded!");
+
+stopAudio(); // Stop previous audio + waveform
+
+const raw = bbtData.replace(/\n/g, '');
+const samples = new Float32Array(raw.length);
+for (let i = 0; i < raw.length; i++) {
+const val = raw.charCodeAt(i) - 65;
+samples[i] = (val - 128) / 128;
+}
+
+const sampleRate = parseInt(document.getElementById("hz").value);
+if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+const buffer = audioContext.createBuffer(1, samples.length, sampleRate);
+buffer.getChannelData(0).set(samples);
+
+const source = audioContext.createBufferSource();
+source.buffer = buffer;
+source.connect(audioContext.destination);
+source.start();
+
+currentSource = source;
+playbackStartTime = audioContext.currentTime;
+bufferStartOffset = 0;
+
+drawInterval = setInterval(() => {
+const elapsed = audioContext.currentTime - playbackStartTime;
+const currentSample = Math.floor(elapsed * sampleRate);
+drawWave(samples, currentSample);
+if (currentSample >= samples.length) {
+clearInterval(drawInterval);
+}
+}, 1000 / 30); // 30 FPS
+}
+
+function drawWave(samples, offset) {
+ctx.fillStyle = "#111";
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+ctx.fillStyle = "#0f0";
+let len = canvas.width;
+let h = canvas.height;
+
+for (let x = 0; x < len; x++) {
+let i = offset + x;
+if (i >= samples.length) break;
+let v = samples[i];
+let y = Math.floor((1 - v) * h / 2);
+ctx.fillRect(x, y, 1, h - y);
+}
+}
+</script>
+</body>
+</html
